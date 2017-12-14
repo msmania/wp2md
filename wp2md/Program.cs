@@ -166,13 +166,18 @@ namespace wp2md {
 
     // Returns the name of the cached file
     private string DownloadFile(string uri) {
-      var filename = prefixOfCache_ + Uri.EscapeDataString(Path.GetFileName(uri));
+      var filename = Path.GetFileName(uri);
+      var questionmark = filename.IndexOf('?');
+      if (questionmark != -1) {
+        filename = filename.Substring(0, questionmark);
+      }
+      filename = prefixOfCache_ + filename;
       var client = new System.Net.WebClient();
       if (!skipDownload_) {
         client.DownloadFile(uri, Path.Combine(assetDirectory_, filename));
         System.Diagnostics.Debug.WriteLine("Download: {0}\t{1}", uri, filename);
       }
-      return filename;
+      return Uri.EscapeDataString(filename);
     }
 
     static private string GetAttribute(IHTMLDOMNode node, string name) {

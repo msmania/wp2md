@@ -8,6 +8,7 @@ namespace wp2md {
 
     public Test_WPXML() {
       this.wp = new WPXML();
+      wp.skipDownload_ = true;
     }
 
     public void Equal(string input, string expectedOutput) {
@@ -30,8 +31,8 @@ namespace wp2md {
 ```
 ");
       Equal(@"<i>abc</i>", @"_abc_");
-      Equal(@"<img src=""lena.jpg""></img>", @"![](about:lena.jpg)");
-      Equal(@"<img src=""" + longUrl + @""" />", @"![](" + longUrl + @")");
+      Equal(@"<img src=""lena.jpg""></img>", @"![]({{site.assets_url}}cache_lena.jpg)");
+      Equal(@"<img src=""" + longUrl + @""" />", @"![]({{site.assets_url}}cache_search)");
       Equal(@"<p>hello</p>", @"
 hello
 
@@ -84,6 +85,12 @@ world
 ###### header6
 
 ");
+    }
+
+    [TestMethod]
+    public void ImageUrl() {
+      Equal(@"<a href=""http://host/image.bmp?abc""><img src=""lena.jpg"" ></a>",
+            @"![]({{site.assets_url}}cache_image.bmp)");
     }
 
     [TestMethod]
@@ -148,7 +155,7 @@ font<br />
 <p>paragraph</p>", @"
 1. item1
 1. item2<br />
-![](about:lena.jpg)
+![]({{site.assets_url}}cache_lena.jpg)
 
 
 paragraph
