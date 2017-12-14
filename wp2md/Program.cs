@@ -155,13 +155,17 @@ namespace wp2md {
       {"H6", (p, n) => p.Heading(n, 6)},
     };
 
-    private bool ignoreTextnodes_ = false;
+    private string assetDirectory_ = "assets/";
+    private string prefixOfCache_ = "cache_";
+
     private Stack<bool> listModesOrdered_ = new Stack<bool>();
     private bool containsImage_ = false;
-    private string processingHyperlink_ = "";
     private bool processingBlockquote_ = false;
-    private string prefixOfCache_ = "cache_";
-    private string assetDirectory_ = null;
+    private string processingHyperlink_ = "";
+
+    private bool ignoreTextnodes_ = false;
+    private bool dontSanitizeText_ = false;
+
     public bool skipDownload_ = true;
 
     // Returns the name of the cached file
@@ -232,7 +236,10 @@ namespace wp2md {
       containsImage_ = false;
       processingHyperlink_ = GetAttribute(node, "HREF");
 
+      dontSanitizeText_ = true;
       var childText = InnerText(node);
+      dontSanitizeText_ = false;
+
       string output = containsImage_
                       ? childText
                       : string.Format("[{0}]({1})",
@@ -301,6 +308,25 @@ namespace wp2md {
       return node.ToString();
     }
 
+    static private string SanitizeText(string original) {
+      var sanitized = original;
+
+      var whitespaces = new System.Text.RegularExpressions.Regex(@"\s+");
+      sanitized = whitespaces.Replace(sanitized, " ");
+
+      sanitized = sanitized.Replace("[", "&#x5b;");
+      sanitized = sanitized.Replace("]", "&#x5d;");
+      sanitized = sanitized.Replace("<", "&lt;");
+      sanitized = sanitized.Replace(">", "&gt;");
+
+      var underscore = new System.Text.RegularExpressions.Regex(@"\b_\S*_");
+      sanitized = underscore.Replace(sanitized, match => {
+        return "\\" + match.Value;
+      });
+
+      return sanitized;
+    }
+
     private string NodeToMD(IHTMLDOMNode rootNode) {
       var type = (NodeType)rootNode.nodeType;
       if (type == NodeType.comment)
@@ -310,7 +336,10 @@ namespace wp2md {
           return "";
 
         var rawText = rootNode.nodeValue.ToString();
-        return rawText == "\n" ? "" : rawText;
+        if (rawText == "\n")
+          return "";
+
+        return dontSanitizeText_ ? rawText : SanitizeText(rawText);
       }
 
       if (rootNode is IHTMLElement elem

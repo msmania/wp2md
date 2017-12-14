@@ -162,5 +162,28 @@ paragraph
 
 ");
     }
+
+    [TestMethod]
+    public void Text() {
+      Equal(@"<p><> [def]</p>", @"
+&lt;&gt; &#x5b;def&#x5d;
+
+");
+      Equal(@"<p>_abc_ __def__ 1_abc_2</p>", @"
+\_abc_ \__def__ 1_abc_2
+
+");
+      Equal(@"<p><a href=""http://a/_b_/c"">http://a/_b_/c</a></p>", @"
+[http://a/_b_/c](http://a/_b_/c)
+
+");
+      Equal(@"<p>a<br />    <br /> 
+ </p>", @"
+a<br />
+ <br />
+ 
+
+");
+    }
   }
 }
