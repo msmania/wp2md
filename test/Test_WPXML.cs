@@ -7,8 +7,10 @@ namespace wp2md {
     WPXML wp;
 
     public Test_WPXML() {
-      this.wp = new WPXML();
-      wp.skipDownload_ = true;
+      this.wp = new WPXML {
+        skipDownload_ = true,
+        handleImgInBlockQuoteException_ = false,
+      };
     }
 
     public void Equal(string input, string expectedOutput) {
@@ -94,8 +96,7 @@ world
     }
 
     [TestMethod]
-    [ExpectedException(typeof(Exception),
-      "Found IMG in Blockquote.  Need to resolve it manually.")]
+    [ExpectedException(typeof(ImageInBlockQuote))]
     public void ImageInBlockQuote() {
       Equal(@"<blockquote>aaa<br />
 <a href=""#""><img src=""lena.jpg"" /></a>

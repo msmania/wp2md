@@ -15,6 +15,13 @@ using System.Xml.Linq;
 using Microsoft.mshtml;
 
 namespace wp2md {
+  public class ImageInBlockQuote : Exception {
+    public readonly string image_source_;
+    public ImageInBlockQuote(string image_source) {
+      image_source_ = image_source;
+    }
+  }
+
   public class WPXML {
     const string ELEM_STATUS = "{http://wordpress.org/export/1.2/}status";
     const string ELEM_TITLE = "title";
@@ -67,53 +74,6 @@ namespace wp2md {
       throw new Exception("No date info");
     }
 
-    // Returns Tuple.item1 = Post's name (HTTP-escaped string)
-    //              .item2 = Post's header info
-    //              .item3 = Post's date
-    static private Tuple<string, string, DateTimeOffset> ItemToHeader(XElement elemItem) {
-      //var elems = elemItem.Elements();
-      //foreach (var it in elems) {
-      //  System.Diagnostics.Debug.WriteLine(it.Name);
-      //}
-      var title = elemItem.Elements(ELEM_TITLE).First();
-      var date = GetPostDate(elemItem);
-      var tags = new List<string>();
-      var categories = new List<string>();
-      CollectCategories(elemItem.Elements(ELEM_CATEGORY),
-                        ref tags,
-                        ref categories);
-
-      var headerLines = new List<string>() {
-        "---",
-        "layout: post",
-        "title: \"" + (title != null ? title.Value : "(no title)") + "\"",
-        "date: " + date.ToString("yyyy-MM-dd HH:mm:ss.fff zzz")
-      };
-
-      if (categories.Count > 0) {
-        headerLines.Add("categories:");
-        foreach (var category in categories) {
-          headerLines.Add("- " + category);
-        }
-      }
-      if (tags.Count > 0) {
-        headerLines.Add("tags:");
-        foreach (var tag in tags) {
-          headerLines.Add("- " + tag);
-        }
-      }
-      headerLines.Add("---\r\n");
-
-      var postname = date.ToString("yyyy-MM-dd");
-      postname += "-";
-      postname += elemItem.Elements(ELEM_POSTNAME).First().Value;
-
-      return new Tuple<string, string, DateTimeOffset>(
-        postname,
-        string.Join("\r\n", headerLines),
-        date);
-    }
-
     private enum NodeType : int {
       element = 1,
       text = 3,
@@ -155,8 +115,9 @@ namespace wp2md {
       {"H6", (p, n) => p.Heading(n, 6)},
     };
 
-    private string assetDirectory_ = "assets/";
+    public string assetDirectory_ = "assets/";
     private string prefixOfCache_ = "cache_";
+    private string currentPost_;
 
     private Stack<bool> listModesOrdered_ = new Stack<bool>();
     private bool containsImage_ = false;
@@ -167,6 +128,7 @@ namespace wp2md {
     private bool dontSanitizeText_ = false;
 
     public bool skipDownload_ = true;
+    public bool handleImgInBlockQuoteException_ = false;
 
     // Returns the name of the cached file
     private string DownloadFile(string uri) {
@@ -218,14 +180,21 @@ namespace wp2md {
     }
 
     private string Image(IHTMLDOMNode node) {
-      if (processingBlockquote_) {
-        throw new Exception("Found IMG in Blockquote.  Need to resolve it manually.");
-      }
-
       containsImage_ = true;
       var source = processingHyperlink_.Length > 0
                    ? processingHyperlink_
                    : GetAttribute(node, "SRC");
+
+      if (processingBlockquote_) {
+        if (handleImgInBlockQuoteException_) {
+          // Image in Blockquote is omitted due to innerText.
+          // Need to take it out from Blockquote manually.
+          Console.WriteLine("> " + source + " in BlockQuote in " + currentPost_);
+        }
+        else
+          throw new ImageInBlockQuote(source);
+      }
+
       return assetDirectory_ == null
              ? string.Format("![]({0})", source)
              : string.Format("![]({{{{site.assets_url}}}}{0})",
@@ -376,30 +345,66 @@ namespace wp2md {
       return NodeToMD(root as IHTMLDOMNode);
     }
 
-    public void Dump(string filepath, string output_path, string assets_path) {
+    static string GenerateHeader(string title,
+                                 DateTimeOffset date,
+                                 List<string> categories,
+                                 List<string> tags) {
+      var headerLines = new List<string>() {
+        "---",
+        "layout: post",
+        "title: \"" + title + "\"",
+        "date: " + date.ToString("yyyy-MM-dd HH:mm:ss.fff zzz")
+      };
+
+      if (categories.Count > 0) {
+        headerLines.Add("categories:");
+        foreach (var category in categories) {
+          headerLines.Add("- " + category);
+        }
+      }
+      if (tags.Count > 0) {
+        headerLines.Add("tags:");
+        foreach (var tag in tags) {
+          headerLines.Add("- " + tag);
+        }
+      }
+      headerLines.Add("---\r\n");
+
+      return string.Join("\r\n", headerLines);
+    }
+
+    public void Dump(string filepath, string output_path) {
       var doc = XDocument.Load(filepath);
       var items = doc.Descendants("item");
       foreach (var item in items) {
         var status = item.Elements(ELEM_STATUS).First();
         var type = item.Elements(ELEM_POSTTYPE).First();
         if (status != null
-            && status.Value.ToString() == "publish"
-            && type.Value.ToString() == "post") {
-          var name_and_header = ItemToHeader(item);
-          var output_fullpath = Path.Combine(output_path,
-                                             name_and_header.Item1);
-          assetDirectory_ = assets_path;
-          prefixOfCache_ = name_and_header.Item3.ToString("yyyy-MM-dd-");
-          Console.WriteLine("Processing .. " + name_and_header.Item1);
+            && status.Value == "publish"
+            && type.Value == "post") {
+          var title = item.Elements(ELEM_TITLE).First().Value;
+          var postname = item.Elements(ELEM_POSTNAME).First().Value;
+          var date = GetPostDate(item);
+          var tags = new List<string>();
+          var categories = new List<string>();
+          CollectCategories(item.Elements(ELEM_CATEGORY),
+                            ref tags,
+                            ref categories);
+
+          prefixOfCache_ = date.ToString("yyyy-MM-dd-");
+          currentPost_ = prefixOfCache_ + postname;
+          Console.WriteLine("Processing .. " + currentPost_);
 
           var elem_content = item.Elements(ELEM_CONTENT).First();
           if (elem_content != null) {
+            var output_fullpath = Path.Combine(output_path, currentPost_);
             var content_html = elem_content.Value;
             var content_md = HTMLToMD(content_html);
+            var header = GenerateHeader(title, date, categories, tags);
             File.WriteAllText(output_fullpath + ".html",
                               content_html);
             File.WriteAllText(output_fullpath + ".md",
-                              name_and_header.Item2 + content_md);
+                              header + content_md);
           }
         }
       }
@@ -408,14 +413,15 @@ namespace wp2md {
 
   class Program {
     static void Main(string[] args) {
-      var wp = new WPXML();
-      wp.skipDownload_ = true;
+      var wp = new WPXML {
+        skipDownload_ = true,
+        handleImgInBlockQuoteException_ = true,
+        assetDirectory_ = @"D:\blog\assets"
+      };
       wp.Dump(@"D:\blog\wordpress.2017-11-25.001.xml",
-              @"D:\blog\output",
-              @"D:\blog\assets");
+              @"D:\blog\output");
       wp.Dump(@"D:\blog\wordpress.2017-11-25.002.xml",
-              @"D:\blog\output",
-              @"D:\blog\assets");
+              @"D:\blog\output");
     }
   }
 }
